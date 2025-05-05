@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Sports Betting Odds Analyzer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Graduate&display=swap');
+    body {
+      font-family: 'Graduate', sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    #betting-visualization {
+      padding: 15px;
+      background: #1c4d30;
+      color: white;
+      border-radius: 8px;
+    }
+    button {
+      background: white;
+      color: #333;
+      border: none;
+      padding: 6px 12px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    button.selected {
+      background: #2d6e46;
+      color: white;
+    }
+    .card {
+      background: white;
+      color: #333;
+      padding: 12px;
+      margin: 10px 0;
+      border-radius: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      color: #333;
+    }
+    th {
+      background: #2d6e46;
+      color: white;
+      padding: 8px;
+    }
+    td {
+      padding: 6px;
+      border-bottom: 1px solid #eee;
+    }
+    .good {
+      background: #dcfce7;
+      color: #166534;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+    .fair {
+      background: #fef9c3;
+      color: #854d0e;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+    .poor {
+      background: #fee2e2;
+      color: #b91c1c;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="betting-visualization">Loading odds data...</div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var container = document.getElementById('betting-visualization');
+      var sheetId = '1jLiloMlquocsezJ1YcVjDPISaN7KKVGSSjKAD8FbSqs';
+      var csvUrl = "https://docs.google.com/spreadsheets/d/" + sheetId + "/export?format=csv";
+      
+      function toAmerican(decimal) {
+        if (!decimal || decimal <= 1) return "N/A";
+        if (decimal >= 2.0) {
+          return "+" + Math.round((decimal - 1) * 100);
+        } else {
+          return Math.round(-100 / (decimal - 1));
+        }
+      }
+      
+      function getTeams(event) {
+        if (!event) return { team1: 'Team 1', team2: 'Team 2' };
+        var teams = event.split('_');
+        if (teams.length === 2) {
+          return { team1: teams[0], team2: teams[1] };
+        } else {
+          return { team1: 'Team 1', team2: 'Team 2' };
+        }
+      }
+      
+      fetch(csvUrl)
+        .then(function(response) { return response.text(); })
+        .then(function(csv) {
+          var lines = csv.split('\n');
+          var headers = lines[0].split(',');
+          
+          var rows = [];
+          for (var i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            
+            var values = lines[i].split(',');
+            var row = {};
+            
+            for (var j = 0; j < headers.length; j++) {
+              var header = headers[j].trim();
+              row[header] = (values[j] && values[j].trim()) || '';
+            }
+            
+            rows.push({
+              event_name: row.event_name || '',
+              bookmaker: row.bookmaker || '',
+              status: row.status || 'Pending',
+              odd_1: parseFloat(row.odd_1) || 0,
+              odd_2: parseFloat(row.odd_2) || 0
+            });
+          }
+          
+          var events = [];
+          var eventMap = {};
+          for (var i = 0; i < rows.length; i++) {
+            var eventName = rows[i].event_name;
+            if (eventName && !eventMap[eventName]) {
+              events.push(eventName);
+              eventMap[eventName] = true;
+            }
+          }
+          
+          var selectedEvent = events[0] || '';
+          var selectedTeam = 'team1';
+          
+          function render() {
+            var eventData = [];
+            for (var i = 0; i < rows.length; i++) {
+              if (rows[i].event_name === selectedEvent) {
+                eventData.push(rows[i]);
+              }
+            }
+            
+            var key = selectedTeam === 'team1' ? 'odd_1' : 'odd_2';
+            var sum = 0;
+            for (var i = 0; i < eventData.length; i++) {
+              sum += eventData[i][key] || 0;
+            }
+            var avg = eventData.length ? sum / eventData.length : 0;
+            
+            var processed = [];
+            for (var i = 0; i < eventData.length; i++) {
+              var r = eventData[i];
+              var odds = r[key];
+              var variance = odds ? ((odds - avg) / avg * 100) : 0;
+              
+              processed.push({
+                event_name: r.event_name,
+                bookmaker: r.bookmaker,
+                status: r.status,
+                odd_1: r.odd_1,
+                odd_2: r.odd_2,
+                odds: odds,
+                variance: variance,
+                american: toAmerican(odds),
+                valueClass: variance >= 3 ? 'good' : variance >= 0 ? 'fair' : 'poor',
+                valueText: variance >= 3 ? 'Good Value' : variance >= 0 ? 'Fair Odds' : 'Poor Value'
+              });
+            }
+            
+            // Sort by variance (best value first)
+            processed.sort(function(a, b) {
+              return b.variance - a.variance;
+            });
+            
+            var teams = getTeams(selectedEvent);
+            var teamName = selectedTeam === 'team1' ? teams.team1 : teams.team2;
+            
+            var html = '<h2>SPORTS BETTING ANALYZER</h2>' +
+              '<div>' +
+                '<select id="event-select">';
+                
+            for (var i = 0; i < events.length; i++) {
+              var e = events[i];
+              html += '<option value="' + e + '"' + (e === selectedEvent ? ' selected' : '') + '>' + 
+                      e.replace('_', ' vs ') + '</option>';
+            }
+                
+            html += '</select>' +
+                '<button id="team1-btn" class="' + (selectedTeam === 'team1' ? 'selected' : '') + '">' + teams.team1 + '</button>' +
+                '<button id="team2-btn" class="' + (selectedTeam === 'team2' ? 'selected' : '') + '">' + teams.team2 + '</button>' +
+              '</div>' +
+              
+              '<div class="card">' +
+                '<h3>' + teamName + ' - Best Odds: ' + (processed.length ? processed[0].american : 'N/A') + '</h3>' +
+                '<p>Average odds: ' + toAmerican(avg) + ' (' + avg.toFixed(2) + ' decimal)</p>' +
+              '</div>' +
+              
+              '<table>' +
+                '<tr>' +
+                  '<th>Bookmaker</th>' +
+                  '<th>Odds</th>' +
+                  '<th>vs Avg</th>' +
+                  '<th>Value</th>' +
+                '</tr>';
+                
+            for (var i = 0; i < processed.length; i++) {
+              var row = processed[i];
+              html += '<tr>' +
+                    '<td>' + row.bookmaker + '</td>' +
+                    '<td><strong>' + row.american + '</strong></td>' +
+                    '<td style="color:' + (row.variance > 0 ? 'green' : 'red') + '">' + 
+                      (row.variance > 0 ? '+' : '') + row.variance.toFixed(2) + '%</td>' +
+                    '<td><span class="' + row.valueClass + '">' + row.valueText + '</span></td>' +
+                  '</tr>';
+            }
+                
+            html += '</table>' +
+              
+              '<div style="margin-top:10px;font-size:12px">Last updated: ' + new Date().toLocaleString() + '</div>';
+            
+            container.innerHTML = html;
+            
+            document.getElementById('event-select').addEventListener('change', function(e) {
+              selectedEvent = e.target.value;
+              render();
+            });
+            
+            document.getElementById('team1-btn').addEventListener('click', function() {
+              selectedTeam = 'team1';
+              render();
+            });
+            
+            document.getElementById('team2-btn').addEventListener('click', function() {
+              selectedTeam = 'team2';
+              render();
+            });
+          }
+          
+          render();
+        })
+        .catch(function(error) {
+          container.innerHTML = 
+            '<h2>SPORTS BETTING ODDS</h2>' +
+            '<div style="color:white;text-align:center;padding:20px">' +
+              'Error loading data: ' + error.message + '<br>' +
+              'Please check the Google Sheet permissions.' +
+            '</div>';
+        });
+    });
+  </script>
+</body>
+</html>
